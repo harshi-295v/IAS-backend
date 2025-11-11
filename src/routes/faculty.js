@@ -216,11 +216,16 @@ router.post('/credentials/notify', requireAuth, requireRole('admin'), async (req
       return res.status(400).json({ error: 'No credentials provided' })
     }
 
-    const limit = Number(process.env.MAIL_CONCURRENCY || 8)
+    // Respond immediately to avoid gateway timeouts; process in background
+    const accepted = credentials.length
+    res.status(202).json({ accepted, queued: true })
+
+    // Background processing
+    const limit = Number(process.env.MAIL_CONCURRENCY || 3)
     const queue = credentials.slice()
     const results = []
 
-    async function worker() {
+    const runWorker = async () => {
       while (queue.length) {
         const c = queue.shift()
         try {
@@ -233,16 +238,24 @@ router.post('/credentials/notify', requireAuth, requireRole('admin'), async (req
           const text = `Dear ${fac.name},\n\nYour portal credentials have been generated.\n\nLogin ID: ${c.loginId}\nPassword: ${c.password}\nLogin URL: ${loginUrl}\n\nRegards,\nAdmin`
           const info = await sendMail({ to: fac.email, subject, html, text })
           results.push({ email: fac.email, ok: true, previewUrl: info.previewUrl })
+          console.log(`[notify] sent -> ${fac.email}`)
         } catch (err) {
           results.push({ email: c.email, ok: false, error: err.message })
+          console.warn(`[notify] failed -> ${c.email}: ${err.message}`)
         }
       }
     }
 
-    await Promise.all(Array.from({ length: Math.min(limit, credentials.length) }, () => worker()))
-    const sent = results.filter(r => r.ok).length
-    const failed = results.length - sent
-    res.json({ total: results.length, sent, failed, results })
+    setImmediate(async () => {
+      try {
+        await Promise.all(Array.from({ length: Math.min(limit, credentials.length) }, () => runWorker()))
+        const sent = results.filter(r => r.ok).length
+        const failed = results.length - sent
+        console.log(`[notify] completed: total=${results.length} sent=${sent} failed=${failed}`)
+      } catch (err) {
+        console.error('[notify] background error:', err)
+      }
+    })
   } catch (e) {
     res.status(500).json({ error: 'Notification sending failed', details: e.message })
   }

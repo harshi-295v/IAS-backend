@@ -15,8 +15,10 @@ export async function getTransport() {
     const testAcc = await nodemailer.createTestAccount()
     cachedTransport = nodemailer.createTransport({
       pool: true,
-      maxConnections: Number(process.env.SMTP_MAX_CONN || 5),
+      maxConnections: Number(process.env.SMTP_MAX_CONN || 1),
       maxMessages: Number(process.env.SMTP_MAX_MSG || 100),
+      rateDelta: Number(process.env.SMTP_RATE_DELTA || 1000),
+      rateLimit: Number(process.env.SMTP_RATE_LIMIT || 5),
       host: 'smtp.ethereal.email',
       port: 587,
       secure: false,
@@ -25,8 +27,10 @@ export async function getTransport() {
   } else {
     cachedTransport = nodemailer.createTransport({
       pool: true,
-      maxConnections: Number(process.env.SMTP_MAX_CONN || 5),
+      maxConnections: Number(process.env.SMTP_MAX_CONN || 1),
       maxMessages: Number(process.env.SMTP_MAX_MSG || 100),
+      rateDelta: Number(process.env.SMTP_RATE_DELTA || 1000),
+      rateLimit: Number(process.env.SMTP_RATE_LIMIT || 5),
       host,
       port,
       secure,
@@ -37,7 +41,7 @@ export async function getTransport() {
 }
 
 export async function sendMail({ to, subject, html, text }) {
-  const from = process.env.FROM_EMAIL || 'Invigilator System <no-reply@example.com>'
+  const from = process.env.FROM_EMAIL || process.env.SMTP_USER || 'Invigilator System <no-reply@example.com>'
   const transporter = await getTransport()
   const info = await transporter.sendMail({ from, to, subject, html, text })
   const previewUrl = nodemailer.getTestMessageUrl(info)
